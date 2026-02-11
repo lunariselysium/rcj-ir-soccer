@@ -1,3 +1,3 @@
-[submodule "rcj-stm32"]
+[submodule "stm32/rcj-soccer-bot"]
 	path = stm32/rcj-soccer-bot
 	url = https://github.com/lunariselysium/rcj-stm32.git
