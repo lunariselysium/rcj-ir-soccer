@@ -1,0 +1,49 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "../protos/SoccerBall.proto"
+EXTERNPROTO "../protos/E-puck.proto"
+
+WorldInfo {
+  basicTimeStep 16
+}
+Viewpoint {
+  orientation 0.26014133806142753 -0.0746727357236228 -0.9626787973000964 3.6512931980848644
+  position 2.8279991611254314 -1.689482178203253 1.7921221104079954
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 1.82 2.43
+}
+DEF BALL SoccerBall {
+  translation 0 0.54 0.11
+  name "BALL"
+  radius 0.02
+  mass 0.05
+}
+DEF MY_ROBOT E-puck {
+  name "MY_ROBOT"
+  controller "tracker_demo"
+  supervisor TRUE
+}
+DEF GHOST_BALL Solid {
+  translation 0 -0.45 0.02
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 1 0 0
+          transparency 0.05
+        }
+      }
+      geometry Sphere {
+        radius 0.02
+      }
+    }
+  ]
+}

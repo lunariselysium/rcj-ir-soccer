@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Particle Filter: Discrete Sensors & Reliability</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --text-color: #e0e0e0;
+            --accent-color: #4da6ff;
+            --code-bg: #2d2d2d;
+            --sidebar-width: 250px;
+            --success-color: #4bb543;
+            --danger-color: #ff4d4d;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar Navigation */
+        nav {
+            width: var(--sidebar-width);
+            background-color: #252526;
+            padding: 20px;
+            border-right: 1px solid #3e3e42;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        nav h3 {
+            margin-top: 0;
+            color: var(--accent-color);
+        }
+
+        nav ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        nav li {
+            margin-bottom: 10px;
+        }
+
+        nav a {
+            color: #bbb;
+            text-decoration: none;
+            transition: color 0.2s;
+            font-size: 0.9em;
+        }
+
+        nav a:hover {
+            color: var(--accent-color);
+        }
+
+        /* Main Content */
+        main {
+            flex-grow: 1;
+            padding: 40px;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+
+        h1, h2, h3 {
+            color: #fff;
+            border-bottom: 1px solid #3e3e42;
+            padding-bottom: 10px;
+        }
+
+        p {
+            line-height: 1.6;
+            color: #ccc;
+            max-width: 800px;
+        }
+
+        /* Code Blocks */
+        pre {
+            background-color: var(--code-bg);
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid var(--accent-color);
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+        }
+
+        .code-keyword { color: #569cd6; }
+        .code-comment { color: #6a9955; }
+        .code-string { color: #ce9178; }
+
+        /* Canvas Containers */
+        .canvas-container {
+            margin: 20px 0;
+            padding: 10px;
+            background: #252526;
+            border-radius: 8px;
+            display: inline-block;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+
+        canvas {
+            background-color: #000;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .caption {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        /* Video Container */
+        .video-container {
+            width: 100%;
+            max-width: 1200px; /* Reduced width to accommodate rotated height */
+            height: 600px;    /* Force height for rotation */
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid #333;
+            margin-top: 20px;
+        }
+
+        video {
+            /* Rotate 90 degrees as requested */
+            transform: rotate(90deg);
+            /* Scale might be needed depending on aspect ratio, 
+               but max-width usually handles it within the flex box */
+            max-width: 160vh; 
+            max-height: 80vw;
+        }
+
+        /* Flowcharts (SVG) */
+        .flowchart {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        
+        svg text {
+            fill: white;
+            font-family: sans-serif;
+            font-size: 14px;
+        }
+        svg rect {
+            stroke: var(--accent-color);
+            stroke-width: 2;
+        }
+        svg path {
+            stroke: #888;
+            stroke-width: 2;
+            fill: none;
+        }
+
+        /* Layout Grid */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            max-width: 1100px;
+        }
+
+        /* Reliability Indicator Styles */
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        .status-good { background-color: rgba(75, 181, 67, 0.2); color: var(--success-color); border: 1px solid var(--success-color); }
+        .status-bad { background-color: rgba(255, 77, 77, 0.2); color: var(--danger-color); border: 1px solid var(--danger-color); }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <nav>
+        <h3>Contents</h3>
+        <ul>
+            <li><a href="#intro">1. Introduction</a></li>
+            <li><a href="#init">2. Initialization</a></li>
+            <li><a href="#predict">3. Prediction (Motion)</a></li>
+            <li><a href="#update">4. Update (Discrete Sensing)</a></li>
+            <li><a href="#resample">5. Resampling (The Wheel)</a></li>
+            <li><a href="#confidence">6. Confidence (Stdev)</a></li>
+            <li><a href="#final">7. Webots Simulation</a></li>
+        </ul>
+        <div style="margin-top: 20px; font-size: 0.8em; color: #666;">
+            Scroll to read sections.<br>Animations run automatically.
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        
+        <section id="intro">
+            <h1>The Particle Filter</h1>
+            <p>
+                A Particle Filter estimates position by maintaining hundreds of "guesses" (particles). It uses a <b>Predict-Update-Resample</b> loop to eliminate bad guesses and multiply good ones.
+            </p>
+
+            <h3>Algorithm Workflow</h3>
+            <div class="flowchart">
+                <svg width="600" height="120" viewBox="0 0 600 120">
+                    <!-- Nodes -->
+                    <rect x="10" y="40" width="100" height="40" fill="#333" rx="5"></rect>
+                    <text x="60" y="65" text-anchor="middle">Initialize</text>
+
+                    <rect x="150" y="40" width="100" height="40" fill="#333" rx="5"></rect>
+                    <text x="200" y="65" text-anchor="middle">Predict</text>
+
+                    <rect x="290" y="40" width="100" height="40" fill="#333" rx="5"></rect>
+                    <text x="340" y="65" text-anchor="middle">Update</text>
+
+                    <rect x="430" y="40" width="120" height="40" fill="#333" rx="5"></rect>
+                    <text x="490" y="65" text-anchor="middle">Resample</text>
+
+                    <!-- Arrows -->
+                    <path d="M110 60 L140 60" marker-end="url(#arrow)"/>
+                    <path d="M250 60 L280 60" marker-end="url(#arrow)"/>
+                    <path d="M390 60 L420 60" marker-end="url(#arrow)"/>
+                    
+                    <!-- Loop Back -->
+                    <path d="M490 80 L490 100 L200 100 L200 80" marker-end="url(#arrow)"/>
+
+                    <defs>
+                        <marker id="arrow" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto" markerUnits="strokeWidth">
+                          <path d="M0,0 L0,6 L9,3 z" fill="#888" stroke="none" />
+                        </marker>
+                    </defs>
+                </svg>
+            </div>
+        </section>
+
+        <section id="init">
+            <h2>2. Initialization</h2>
+            <p>
+                We generate `num_particles` (200) with random X and Y coordinates. The robot initially assumes the ball could be anywhere on the field.
+            </p>
+            
+            <div class="grid-2">
+                <div>
+<pre><code class="language-python">
+# 1. Random Distribution
+self.particles = []
+for _ in range(self.n):
+    px = random.uniform(-field_x/2, field_x/2)
+    py = random.uniform(-field_y/2, field_y/2)
+    self.particles.append([px, py])
+
+# 2. Equal Weights
+self.weights = [1.0 / self.n] * self.n
+</code></pre>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="canvas_init" width="300" height="200"></canvas>
+                    <div class="caption">200 Random Particles (Blue Dots)</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="predict">
+            <h2>3. Predict (Motion Model)</h2>
+            <p>
+                We don't know the ball's velocity vector perfectly. We assume the ball stays roughly where it is, but we add <b>Gaussian Noise</b>. This represents uncertainty growing over time; the particle cloud diffuses (spreads out) slightly every frame.
+            </p>
+
+            <div class="grid-2">
+                <div class="canvas-container">
+                    <canvas id="canvas_predict" width="300" height="200"></canvas>
+                    <div class="caption">Particles Diffusing (Jittering)</div>
+                </div>
+                <div>
+<pre><code class="language-python">
+def predict(self):
+    noise = 0.009 
+    for i in range(self.n):
+        # Add random noise to X and Y
+        self.particles[i][0] += random.gauss(0, noise)
+        self.particles[i][1] += random.gauss(0, noise)
+</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="update">
+            <h2>4. Update (Discrete Sensors)</h2>
+            <p>
+                The robot uses a ring of <b>16 Discrete IR Sensors</b>. Interpolation is inaccurate, so the robot only knows which "Sector" (0-15) the ball is in.
+            </p>
+            <p>
+                In the Update step:
+            </p>
+            <ol>
+                <li>We determine which Sector (0-15) the <b>Real Ball</b> is in.</li>
+                <li>For every particle, we calculate which Sector it <b>would</b> be in.</li>
+                <li>If the Sectors match (or are very close), the particle gets a High Weight.</li>
+                <li>If the Sectors differ, the weight drops to near zero.</li>
+            </ol>
+            
+            <div class="canvas-container" style="display:block; width: 600px; margin: 0 auto;">
+                <canvas id="canvas_update" width="600" height="350"></canvas>
+                <div class="caption">
+                    <b>Triangle:</b> Robot | <b>Red Dot:</b> Real Ball<br>
+                    <b>Green Slice:</b> The specific sensor (0-15) that sees the ball.<br>
+                    Particles light up <b>White</b> if they fall into the same sensor slice.
+                </div>
+            </div>
+
+<pre><code class="language-python">
+# 1. Convert Sensor Index to Angle
+sensor_angle = sensor_index * (2 * math.pi / 16)
+
+# 2. Check alignment
+angle_diff = abs(particle_rel_angle - sensor_angle)
+
+# 3. Assign Weight
+# If the particle falls within the sensor's cone, weight is high.
+sigma = 0.2
+probability = math.exp(-(angle_diff**2) / (2 * sigma**2))
+self.weights[i] *= probability + 1e-10
+</code></pre>
+        </section>
+
+        <section id="resample">
+            <h2>5. Resampling (The Wheel)</h2>
+            <p>
+                We use <b>Low Variance Sampling</b> (often called the Resampling Wheel). This creates a new generation of particles. 
+            </p>
+            <p>
+                Imagine a pie chart where each slice is a particle. The <b>size</b> of the slice corresponds to the particle's <b>weight</b>.
+            </p>
+            <ul>
+                <li><b>Big Slices:</b> Good particles (high weight). Easy to land on.</li>
+                <li><b>Tiny Slices:</b> Bad particles (low weight). Hard to land on.</li>
+            </ul>
+            <p>
+                We spin a "pointer" around the wheel. The step size of the pointer is controlled by a random value `beta`.
+            </p>
+
+            <div class="grid-2">
+                <div>
+<pre><code class="language-python">
+# The Wheel Algorithm
+index = int(random.random() * self.n)
+beta = 0.0
+max_weight = max(self.weights)
+
+for _ in range(self.n):
+    # Spin the wheel by 'beta' amount
+    beta += random.random() * 2.0 * max_weight
+    
+    # Skip over slices until beta fits
+    while beta > self.weights[index]:
+        beta -= self.weights[index]
+        index = (index + 1) % self.n
+    
+    # Pick the particle we landed on
+    new_particles.append(self.particles[index])
+</code></pre>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="canvas_wheel" width="400" height="400"></canvas>
+                    <div class="caption">
+                        <b>Pie Chart:</b> All particles (widths = weights).<br>
+                        <b>Green Arrow:</b> The "Picker".<br>
+                        <b>Blue Arc:</b> The `beta` step size.<br>
+                        Notice the arrow lands often on large slices.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="confidence">
+            <h2>6. Estimating Confidence (Standard Deviation)</h2>
+            <p>
+                How does the robot know if its position estimate is reliable? We calculate the <b>Standard Deviation (Stdev)</b> of the particle cloud.
+            </p>
+            <ul>
+                <li><b>High Stdev:</b> Particles are scattered all over the map. The robot is lost. <b>Action:</b> Look around.</li>
+                <li><b>Low Stdev:</b> Particles are tightly clustered. The robot is confident. <b>Action:</b> Kick the ball.</li>
+            </ul>
+
+            <div class="grid-2">
+                <div>
+<pre><code class="language-python">
+# Calculate standard deviation of X and Y
+import statistics
+
+x_values = [p[0] for p in self.particles]
+y_values = [p[1] for p in self.particles]
+
+# A simple metric for confidence
+stdev = statistics.stdev(x_values) + statistics.stdev(y_values)
+
+if stdev < 0.5:
+    print("Reliable Estimate")
+else:
+    print("Unreliable - Search for Ball")
+</code></pre>
+                </div>
+                <div class="canvas-container">
+                    <canvas id="canvas_stdev" width="400" height="300"></canvas>
+                    <div class="caption">
+                        Comparison: Scattered vs. Clustered.<br>
+                        The circle radius represents the Standard Deviation.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="final">
+            <h2>7. Webots Simulation</h2>
+            <p>
+                Below is a recording from the Webots simulator showing the Particle Filter in action. You can see the particle cloud (blue) tracking the ball (red). Note how the cloud disperses when the robot looks away and converges when the sensor (green cone) spots the ball.
+            </p>
+            
+            <div class="video-container">
+                <video controls loop autoplay muted>
+                    <source src="./Ball Tracker Demo.mp4" type="video/mp4">
+                    <p style="color:white; padding: 20px;">
+                        Video file not found. Please update the HTML with your specific video path.<br>
+                        &lt;source src="your_file.mp4"&gt;
+                    </p>
+                </video>
+            </div>
+            <div class="caption" style="text-align: center;">Webots Simulation Recording</div>
+        </section>
+
+    </main>
+
+    <!-- Javascript Logic -->
+    <script>
+        // --- Utilities ---
+        function gaussianRandom(mean, stdev) {
+            const u = 1 - Math.random(); 
+            const v = Math.random();
+            const z = Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+            return z * stdev + mean;
+        }
+
+        function normalizeAngle(angle) {
+            while (angle > Math.PI) angle -= 2 * Math.PI;
+            while (angle < -Math.PI) angle += 2 * Math.PI;
+            return angle;
+        }
+
+        function calculateStandardDeviation(values) {
+            const n = values.length;
+            const mean = values.reduce((a, b) => a + b) / n;
+            return Math.sqrt(values.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n);
+        }
+
+        // --- Render Helpers ---
+        function drawField(ctx, w, h) {
+            ctx.fillStyle = "#2e5e2e";
+            ctx.fillRect(0,0,w,h);
+            ctx.strokeStyle = "rgba(255,255,255,0.1)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for(let x=0; x<w; x+=50) { ctx.moveTo(x,0); ctx.lineTo(x,h); }
+            for(let y=0; y<h; y+=50) { ctx.moveTo(0,y); ctx.lineTo(w,y); }
+            ctx.stroke();
+        }
+
+        // --- Animation 1: Init ---
+        const c1 = document.getElementById('canvas_init');
+        const ctx1 = c1.getContext('2d');
+        function animInit() {
+            drawField(ctx1, c1.width, c1.height);
+            ctx1.fillStyle = "#4da6ff";
+            for(let i=0; i<50; i++) { 
+                let x = Math.random() * c1.width;
+                let y = Math.random() * c1.height;
+                ctx1.beginPath();
+                ctx1.arc(x, y, 2, 0, Math.PI*2);
+                ctx1.fill();
+            }
+            requestAnimationFrame(animInit);
+        }
+        animInit();
+
+        // --- Animation 2: Predict ---
+        const c2 = document.getElementById('canvas_predict');
+        const ctx2 = c2.getContext('2d');
+        let p2_particles = [];
+        for(let i=0; i<100; i++) p2_particles.push({x: 150, y: 100}); 
+
+        function animPredict() {
+            drawField(ctx2, c2.width, c2.height);
+            ctx2.fillStyle = "#4da6ff";
+            for(let p of p2_particles) {
+                p.x += gaussianRandom(0, 1.5); 
+                p.y += gaussianRandom(0, 1.5);
+                if(p.x < 0) p.x = c2.width; if(p.x > c2.width) p.x = 0;
+                if(p.y < 0) p.y = c2.height; if(p.y > c2.height) p.y = 0;
+                ctx2.beginPath(); ctx2.arc(p.x, p.y, 2, 0, Math.PI*2); ctx2.fill();
+            }
+            requestAnimationFrame(animPredict);
+        }
+        animPredict();
+
+        // --- Animation 3: Discrete Update ---
+        const c3 = document.getElementById('canvas_update');
+        const ctx3 = c3.getContext('2d');
+        
+        let updateState = {
+            particles: [],
+            ball: {x: 2.0, y: 0}, 
+            time: 0
+        };
+
+        // Init particles for Update Demo
+        for(let i=0; i<150; i++) {
+            updateState.particles.push({
+                x: (Math.random()-0.5)*5, 
+                y: (Math.random()-0.5)*3.5
+            });
+        }
+
+        function getDiscreteSector(rx, ry, rh, targetX, targetY) {
+            // 16 Sensors
+            const num_sensors = 16;
+            const sector_size = (2 * Math.PI) / num_sensors;
+            
+            let dx = targetX - rx;
+            let dy = targetY - ry;
+            let global_angle = Math.atan2(dy, dx);
+            let local_angle = normalizeAngle(global_angle - rh);
+            if (local_angle < 0) local_angle += 2*Math.PI;
+            
+            return Math.floor(local_angle / sector_size);
+        }
+
+        function animUpdate() {
+            updateState.time += 0.01;
+            updateState.ball.x = Math.cos(updateState.time) * 2.0;
+            updateState.ball.y = Math.sin(updateState.time) * 1.5;
+
+            drawField(ctx3, c3.width, c3.height);
+            let cx = c3.width/2; 
+            let cy = c3.height/2;
+            let scale = 60;
+
+            let ballSector = getDiscreteSector(0, 0, 0, updateState.ball.x, updateState.ball.y);
+
+            // Draw Sensor Ring
+            for(let s=0; s<16; s++) {
+                let startAng = s * (Math.PI*2/16);
+                let endAng = (s+1) * (Math.PI*2/16);
+                
+                ctx3.beginPath();
+                ctx3.moveTo(cx, cy);
+                ctx3.arc(cx, cy, 300, startAng, endAng);
+                
+                if (s === ballSector) {
+                    ctx3.fillStyle = "rgba(0, 255, 0, 0.2)";
+                    ctx3.fill();
+                    ctx3.strokeStyle = "#0f0";
+                } else {
+                    ctx3.strokeStyle = "rgba(255,255,255,0.05)";
+                }
+                ctx3.stroke();
+            }
+
+            // Draw Particles
+            for(let p of updateState.particles) {
+                let px = cx + p.x * scale;
+                let py = cy + p.y * scale;
+                let pSector = getDiscreteSector(0, 0, 0, p.x, p.y);
+                
+                if(pSector === ballSector) {
+                    ctx3.fillStyle = "white"; 
+                } else if ( Math.abs(pSector - ballSector) === 1 || Math.abs(pSector - ballSector) === 15) {
+                     ctx3.fillStyle = "#888"; 
+                } else {
+                    ctx3.fillStyle = "#333"; 
+                }
+                
+                ctx3.beginPath(); ctx3.arc(px, py, 3, 0, Math.PI*2); ctx3.fill();
+            }
+
+            // Robot Body
+            ctx3.save();
+            ctx3.translate(cx, cy);
+            ctx3.fillStyle = "orange";
+            ctx3.beginPath();
+            ctx3.moveTo(15, 0); ctx3.lineTo(-10, -10); ctx3.lineTo(-10, 10);
+            ctx3.fill();
+            ctx3.restore();
+
+            // Ball
+            let bx = cx + updateState.ball.x * scale;
+            let by = cy + updateState.ball.y * scale;
+            ctx3.fillStyle = "red";
+            ctx3.beginPath(); ctx3.arc(bx, by, 6, 0, Math.PI*2); ctx3.fill();
+
+            requestAnimationFrame(animUpdate);
+        }
+        animUpdate();
+
+
+        // --- Animation 4: Resampling Wheel ---
+        const c4 = document.getElementById('canvas_wheel');
+        const ctx4 = c4.getContext('2d');
+        
+        let wheelData = {
+            weights: [0.1, 0.05, 0.2, 0.05, 0.02, 0.01, 0.3, 0.05, 0.1, 0.02, 0.1], 
+            colors: [],
+            angle: 0, 
+            beta: 0,  
+            targetBeta: 0,
+            state: 'spin' 
+        };
+
+        for(let w of wheelData.weights) {
+            let hue = Math.floor(Math.random()*360);
+            wheelData.colors.push(`hsl(${hue}, 70%, 50%)`);
+        }
+        let totalW = wheelData.weights.reduce((a,b)=>a+b,0);
+        let normalizedWeights = wheelData.weights.map(w => (w/totalW) * Math.PI*2);
+
+        function animWheel() {
+            ctx4.clearRect(0,0,c4.width, c4.height);
+            let cx = c4.width/2;
+            let cy = c4.height/2;
+            let r = 100;
+
+            let currentAng = 0;
+            for(let i=0; i<normalizedWeights.length; i++) {
+                let slice = normalizedWeights[i];
+                ctx4.beginPath();
+                ctx4.moveTo(cx, cy);
+                ctx4.arc(cx, cy, r, currentAng, currentAng + slice);
+                ctx4.fillStyle = wheelData.colors[i];
+                ctx4.fill();
+                ctx4.strokeStyle = "#1e1e1e";
+                ctx4.lineWidth = 2;
+                ctx4.stroke();
+                currentAng += slice;
+            }
+
+            if(wheelData.state === 'spin') {
+                wheelData.targetBeta = Math.random() * 1.5; 
+                wheelData.beta = 0;
+                wheelData.state = 'moving';
+            } else if (wheelData.state === 'moving') {
+                wheelData.beta += 0.05; 
+                wheelData.angle += 0.05; 
+                
+                if(wheelData.beta >= wheelData.targetBeta) {
+                    wheelData.state = 'pause';
+                    setTimeout(() => { wheelData.state = 'spin'; }, 500);
+                }
+            }
+
+            wheelData.angle = wheelData.angle % (Math.PI*2);
+
+            // Arc
+            if(wheelData.state === 'moving') {
+                ctx4.beginPath();
+                ctx4.arc(cx, cy, r + 20, wheelData.angle - wheelData.beta, wheelData.angle);
+                ctx4.strokeStyle = "#4da6ff";
+                ctx4.lineWidth = 5;
+                ctx4.stroke();
+            }
+
+            // Pointer
+            let ptrX = cx + Math.cos(wheelData.angle) * (r + 30);
+            let ptrY = cy + Math.sin(wheelData.angle) * (r + 30);
+            
+            ctx4.beginPath();
+            ctx4.moveTo(cx, cy);
+            ctx4.lineTo(ptrX, ptrY);
+            ctx4.strokeStyle = "white";
+            ctx4.lineWidth = 2;
+            ctx4.stroke();
+
+            ctx4.beginPath();
+            ctx4.arc(ptrX, ptrY, 5, 0, Math.PI*2);
+            ctx4.fillStyle = "#0f0"; 
+            ctx4.fill();
+
+            requestAnimationFrame(animWheel);
+        }
+        animWheel();
+
+        // --- Animation 5: Standard Deviation ---
+        const c5 = document.getElementById('canvas_stdev');
+        const ctx5 = c5.getContext('2d');
+        
+        let stdevState = 'converged'; // 'converged' or 'scattered'
+        let stdevTimer = 0;
+        let p5_particles = [];
+
+        function generateStdevParticles(type) {
+            let p = [];
+            let cx = c5.width / 2;
+            let cy = c5.height / 2;
+            
+            if (type === 'scattered') {
+                for(let i=0; i<100; i++) {
+                    p.push({
+                        x: Math.random() * c5.width,
+                        y: Math.random() * c5.height
+                    });
+                }
+            } else {
+                for(let i=0; i<100; i++) {
+                    p.push({
+                        x: cx + gaussianRandom(0, 30), // Tight cluster
+                        y: cy + gaussianRandom(0, 30)
+                    });
+                }
+            }
+            return p;
+        }
+
+        p5_particles = generateStdevParticles('scattered');
+
+        function animStdev() {
+            stdevTimer++;
+            if (stdevTimer > 200) {
+                stdevTimer = 0;
+                stdevState = stdevState === 'converged' ? 'scattered' : 'converged';
+                p5_particles = generateStdevParticles(stdevState);
+            }
+
+            drawField(ctx5, c5.width, c5.height);
+            
+            // Calculate Stdev
+            let xVals = p5_particles.map(p => p.x);
+            let yVals = p5_particles.map(p => p.y);
+            let stdX = calculateStandardDeviation(xVals);
+            let stdY = calculateStandardDeviation(yVals);
+            let totalStd = (stdX + stdY) / 2;
+
+            // Draw Particles
+            ctx5.fillStyle = "#4da6ff";
+            for(let p of p5_particles) {
+                // Add slight jitter
+                p.x += gaussianRandom(0, 0.5);
+                p.y += gaussianRandom(0, 0.5);
+                ctx5.beginPath();
+                ctx5.arc(p.x, p.y, 2, 0, Math.PI*2);
+                ctx5.fill();
+            }
+
+            // Draw Stdev Circle
+            let avgX = xVals.reduce((a,b)=>a+b)/xVals.length;
+            let avgY = yVals.reduce((a,b)=>a+b)/yVals.length;
+            
+            ctx5.strokeStyle = stdevState === 'converged' ? '#0f0' : '#f00';
+            ctx5.lineWidth = 2;
+            ctx5.beginPath();
+            ctx5.arc(avgX, avgY, totalStd, 0, Math.PI*2);
+            ctx5.stroke();
+
+            // Text Info
+            ctx5.fillStyle = "white";
+            ctx5.font = "16px Consolas";
+            ctx5.fillText(`Stdev: ${totalStd.toFixed(1)}`, 10, 25);
+            
+            let status = stdevState === 'converged' ? "RELIABLE" : "UNRELIABLE";
+            ctx5.fillStyle = stdevState === 'converged' ? "#4bb543" : "#ff4d4d";
+            ctx5.fillText(status, 10, 45);
+
+            requestAnimationFrame(animStdev);
+        }
+        animStdev();
+
+    </script>
+</body>
+</html>
