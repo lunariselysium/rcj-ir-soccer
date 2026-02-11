@@ -1,4 +1,5 @@
 stm32/
+!stm32/rcj-soccer-bot/
 
 #settings
 .settings/
